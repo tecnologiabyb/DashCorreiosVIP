@@ -3,109 +3,90 @@ export interface DateRange {
   end: string;
 }
 
-/** Métricas comuns às três plataformas. O foco da dash é `pageviews` e `leads`. */
+/** Métricas do Cockpit de Growth Correios (o relatório de referência não mostra investimento). */
 export interface Totals {
-  spend: number;
   impressions: number;
   clicks: number;
-  /** Visualizações da página de destino (Meta: landing page view; Google: ação de pageview; LinkedIn: cliques para a página). */
-  pageviews: number;
   leads: number;
 }
 
-export interface DailyPoint extends Totals {
-  date: string;
-}
-
-export interface CampaignRow extends Totals {
+export interface Row extends Totals {
   id?: string;
   name: string;
-  /** Tipo (Google: Pesquisa, Display...; Meta: objetivo; LinkedIn: formato). */
-  type?: string;
-}
-
-export interface BreakdownRow {
-  name: string;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  pageviews: number;
-  leads: number;
 }
 
 export interface MetaTotals extends Totals {
-  reach: number;
-  /** Leads de formulário instantâneo (dentro do Facebook/Instagram). */
-  leadsForm: number;
-  /** Leads registrados pelo pixel no site. */
-  leadsSite: number;
+  /** Cliques no link dos conjuntos de leads: base da taxa de conversão (leads ÷ cliques no link). */
+  leadLinkClicks: number;
 }
 
-export interface AdRow extends Totals {
-  id: string;
-  name: string;
-  campaignId?: string;
-  thumbnail?: string;
+export interface MetaAdsetRow extends Row {
+  /** Visualizações da página de destino. */
+  pageviews: number;
 }
 
 export interface MetaData {
   totals: MetaTotals;
   prev: MetaTotals;
-  daily: DailyPoint[];
-  campaigns: CampaignRow[];
-  /** Todos os anúncios do período, do melhor para o pior (filtrar por campaignId). */
-  ads: AdRow[];
-  age: BreakdownRow[];
-  gender: BreakdownRow[];
-  region: BreakdownRow[];
+  /** Conjuntos das campanhas com objetivo de leads. */
+  leadAdsets: MetaAdsetRow[];
+  /** Conjuntos das campanhas de tráfego (pageview). */
+  trafficAdsets: MetaAdsetRow[];
 }
 
-export interface KeywordRow {
-  keyword: string;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  leads: number;
+export interface GoogleCampaignRow extends Row {
+  /** Tipo da campanha (Pesquisa, Display, Demand Gen...). */
+  type?: string;
+  /** Visualizações de vídeo (YouTube). */
+  views: number;
+  /** Parcela de impressões na parte superior da pesquisa (0 a 1). Ausente fora da rede de pesquisa. */
+  topShare?: number;
+}
+
+export type GoogleTotals = Totals & { views: number; topShare?: number };
+
+export interface GoogleGroup {
+  totals: GoogleTotals;
+  prev: GoogleTotals;
+  campaigns: GoogleCampaignRow[];
 }
 
 export interface SearchTermRow {
   term: string;
-  spend: number;
   impressions: number;
   clicks: number;
-  leads: number;
+}
+
+export interface VideoRow {
+  /** ID do vídeo no YouTube (a miniatura vem de i.ytimg.com). */
+  id: string;
+  title: string;
+  views: number;
+  impressions: number;
+  clicks: number;
 }
 
 export interface GoogleData {
-  totals: Totals;
-  prev: Totals;
-  daily: DailyPoint[];
-  campaigns: CampaignRow[];
-  keywords: KeywordRow[];
-  device: BreakdownRow[];
+  /** Campanhas de Pesquisa, Display e Performance Max. */
+  ads: GoogleGroup;
+  /** Campanhas de Vídeo e Demand Gen. */
+  youtube: GoogleGroup;
+  /** Termos de pesquisa das campanhas, dos mais clicados para os menos. */
   terms: SearchTermRow[];
-  /** Ações de conversão contadas como lead e como pageview (nomes configurados). */
-  leadActions: string[];
-  pageviewActions: string[];
-}
-
-export interface LinkedInTotals extends Totals {
-  /** Leads de formulário nativo (Lead Gen Form). */
-  leadsForm: number;
-  /** Conversões registradas no site pela Insight Tag. */
-  leadsSite: number;
+  /** Vídeos anunciados, dos mais vistos para os menos. */
+  videos: VideoRow[];
 }
 
 export interface LinkedInData {
-  totals: LinkedInTotals;
-  prev: LinkedInTotals;
-  daily: DailyPoint[];
-  campaigns: CampaignRow[];
+  totals: Totals;
+  prev: Totals;
+  /** No LinkedIn o "grupo de anúncio" do relatório é a campanha. */
+  campaigns: Row[];
 }
 
-export interface SourceResult<T> {
-  data: T;
-  mock: boolean;
+/** `data` é null quando a fonte não está configurada ou a API falhou. */
+export interface Source<T> {
+  data: T | null;
   error?: string;
 }
 
@@ -114,9 +95,8 @@ export interface DashboardResponse {
   prevRange: DateRange;
   /** Trecho do nome que seleciona as campanhas (ex.: "correios"). */
   filter: string;
-  meta: SourceResult<MetaData>;
-  google: SourceResult<GoogleData>;
-  /** LinkedIn Ads. `data` é null quando o token não está configurado ou a API falhou. */
-  linkedin: { data: LinkedInData | null; error?: string };
+  meta: Source<MetaData>;
+  google: Source<GoogleData>;
+  linkedin: Source<LinkedInData>;
   updatedAt: string;
 }

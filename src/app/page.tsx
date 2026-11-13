@@ -3,16 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DashboardResponse, DateRange } from '@/lib/types';
 import { longDate } from '@/lib/format';
-import Overview from '@/components/Overview';
-import MetaView from '@/components/MetaView';
-import GoogleView from '@/components/GoogleView';
-import LinkedInView from '@/components/LinkedInView';
+import { GooglePage, LinkedInPage, MetaPage, YouTubePage } from '@/components/Pages';
 
-type Tab = 'overview' | 'meta' | 'google' | 'linkedin';
+// Mesmas páginas, na mesma ordem, do "Cockpit de Growth Correios" (Data Studio)
+type Tab = 'google' | 'youtube' | 'meta' | 'linkedin';
 const TABS: { id: Tab; label: string; title: string }[] = [
-  { id: 'overview', label: 'Visão geral', title: 'Visão geral' },
-  { id: 'meta', label: 'Meta Ads', title: 'Meta Ads' },
   { id: 'google', label: 'Google Ads', title: 'Google Ads' },
+  { id: 'youtube', label: 'YouTube', title: 'YouTube' },
+  { id: 'meta', label: 'Meta Ads', title: 'Meta Ads' },
   { id: 'linkedin', label: 'LinkedIn Ads', title: 'LinkedIn Ads' },
 ];
 
@@ -27,23 +25,31 @@ function preset(id: string): DateRange {
   switch (id) {
     case 'today':
       return { start: iso(today), end: iso(today) };
+    case '7':
+      return { start: iso(back(7)), end: iso(back(1)) };
     case '14':
       return { start: iso(back(14)), end: iso(back(1)) };
     case '30':
       return { start: iso(back(30)), end: iso(back(1)) };
-    case 'month':
-      return { start: iso(new Date(today.getFullYear(), today.getMonth(), 1)), end: iso(today) };
     case 'lastmonth':
       return { start: iso(new Date(today.getFullYear(), today.getMonth() - 1, 1)), end: iso(new Date(today.getFullYear(), today.getMonth(), 0)) };
     default:
-      return { start: iso(back(7)), end: iso(back(1)) };
+      return { start: iso(new Date(today.getFullYear(), today.getMonth(), 1)), end: iso(today) };
   }
 }
 
+function Unavailable({ name, error }: { name: string; error?: string }) {
+  return (
+    <div className="banner">
+      <b>Dados de {name} indisponíveis.</b> {error ?? 'A fonte não respondeu.'}
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const [tab, setTab] = useState<Tab>('overview');
-  const [presetId, setPresetId] = useState('30');
-  const [range, setRange] = useState<DateRange>(() => preset('30'));
+  const [tab, setTab] = useState<Tab>('google');
+  const [presetId, setPresetId] = useState('month');
+  const [range, setRange] = useState<DateRange>(() => preset('month'));
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,10 +59,6 @@ export default function Dashboard() {
     setError('');
     try {
       const res = await fetch(`/api/dashboard?start=${r.start}&end=${r.end}${refresh ? '&refresh=1' : ''}`);
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Erro ao carregar');
       setData(json);
@@ -76,13 +78,7 @@ export default function Dashboard() {
     if (id !== 'custom') setRange(preset(id));
   }
 
-  async function logout() {
-    await fetch('/api/login', { method: 'DELETE' });
-    window.location.href = '/login';
-  }
-
   const current = TABS.find((t) => t.id === tab)!;
-  const mockSources = data ? [data.meta.mock && 'Meta Ads', data.google.mock && 'Google Ads'].filter(Boolean) : [];
 
   return (
     <div className="shell">
@@ -90,7 +86,7 @@ export default function Dashboard() {
         <div className="brand">
           <span className="mark">Leilões</span>
           <div className="name">Correios</div>
-          <div className="by">Vip Leilões · mídia paga</div>
+          <div className="by">Cockpit de Growth · Vip Leilões</div>
         </div>
         <nav className="nav">
           {TABS.map((t) => (
@@ -100,8 +96,7 @@ export default function Dashboard() {
           ))}
         </nav>
         <div className="foot">
-          {data && <>Atualizado em {new Date(data.updatedAt).toLocaleString('pt-BR')}<br /></>}
-          <button onClick={logout}>Sair</button>
+          {data && <>Atualizado em {new Date(data.updatedAt).toLocaleString('pt-BR')}</>}
         </div>
       </aside>
 
@@ -110,18 +105,18 @@ export default function Dashboard() {
           <div>
             <h1>{current.title}</h1>
             <div className="sub">
-              Leilões dos Correios | <b>{tab === 'overview' ? (data?.linkedin?.data ? 'Meta + Google + LinkedIn' : 'Meta + Google') : 'Vip Leilões'}</b>
+              Cockpit de Growth Correios | <b>Vip Leilões</b>
               {data && <> · comparando com {longDate(data.prevRange.start)} – {longDate(data.prevRange.end)}</>}
             </div>
           </div>
           <div className="filters">
             <select value={presetId} onChange={(e) => choosePreset(e.target.value)} aria-label="Período">
+              <option value="month">Este mês</option>
+              <option value="lastmonth">Mês passado</option>
               <option value="today">Hoje</option>
               <option value="7">Últimos 7 dias</option>
               <option value="14">Últimos 14 dias</option>
               <option value="30">Últimos 30 dias</option>
-              <option value="month">Este mês</option>
-              <option value="lastmonth">Mês passado</option>
               <option value="custom">Personalizado</option>
             </select>
             <input type="date" value={range.start} max={range.end} aria-label="Data inicial" onChange={(e) => { setPresetId('custom'); setRange({ ...range, start: e.target.value }); }} />
@@ -133,27 +128,13 @@ export default function Dashboard() {
         </header>
 
         {error && <div className="banner">Erro: {error}</div>}
-        {mockSources.length > 0 && (
-          <div className="banner">
-            <b>Dados de exemplo em {mockSources.join(' e ')}.</b> As credenciais ainda não estão configuradas ou falharam
-            {data?.meta.error && <><br />Meta: {data.meta.error}</>}
-            {data?.google.error && <><br />Google: {data.google.error}</>}
-          </div>
-        )}
 
         {data ? (
           <div className={loading ? 'loading' : ''}>
-            {tab === 'overview' && <Overview d={data} />}
-            {tab === 'meta' && <MetaView m={data.meta.data} />}
-            {tab === 'google' && <GoogleView g={data.google.data} />}
-            {tab === 'linkedin' &&
-              (data.linkedin?.data ? (
-                <LinkedInView l={data.linkedin.data} />
-              ) : (
-                <div className="banner">
-                  <b>LinkedIn Ads ainda não conectado.</b> {data.linkedin?.error ?? 'A fonte do LinkedIn não respondeu.'} Preencha LINKEDIN_ACCESS_TOKEN e LINKEDIN_AD_ACCOUNT_ID (veja o README).
-                </div>
-              ))}
+            {tab === 'google' && (data.google.data ? <GooglePage g={data.google.data} /> : <Unavailable name="Google Ads" error={data.google.error} />)}
+            {tab === 'youtube' && (data.google.data ? <YouTubePage g={data.google.data} /> : <Unavailable name="YouTube" error={data.google.error} />)}
+            {tab === 'meta' && (data.meta.data ? <MetaPage m={data.meta.data} /> : <Unavailable name="Meta Ads" error={data.meta.error} />)}
+            {tab === 'linkedin' && (data.linkedin.data ? <LinkedInPage l={data.linkedin.data} /> : <Unavailable name="LinkedIn Ads" error={data.linkedin.error} />)}
           </div>
         ) : (
           !error && <div className="empty">Carregando dados…</div>

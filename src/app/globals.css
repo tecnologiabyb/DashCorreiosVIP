@@ -259,15 +259,6 @@ td.thumb-cell img, td.thumb-cell .no-thumb { width: 44px; height: 44px; border-r
 
 .loading { opacity: 0.55; transition: opacity 0.2s; pointer-events: none; }
 
-/* ---------- Login ---------- */
-.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--blue); padding: 16px; }
-.login form { background: #fff; border-radius: 18px; padding: 34px 30px; width: 100%; max-width: 360px; text-align: center; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2); }
-.login img { width: 96px; height: 96px; border-radius: 50%; }
-.login h1 { font-size: 16px; margin: 14px 0 20px; color: var(--navy); text-transform: uppercase; letter-spacing: 0.05em; }
-.login input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-size: 14px; margin-bottom: 12px; }
-.login .btn { width: 100%; padding: 12px; font-size: 13px; }
-.login .err { color: var(--down); font-size: 12px; margin-top: 10px; }
-
 /* ---------- Responsivo ---------- */
 @media (max-width: 1280px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -307,8 +298,18 @@ th.sorted, .filter-chip b { color: var(--accent-ink); }
 .sidebar .brand .mark { display: inline-block; background: var(--accent); color: var(--navy); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px; }
 .sidebar .brand .name { font-size: 20px; font-weight: 700; margin-top: 10px; }
 .sidebar .brand .by { font-size: 11px; color: rgba(255, 255, 255, 0.6); margin-top: 2px; }
-.login .brand { color: var(--navy); font-weight: 700; font-size: 22px; margin-bottom: 20px; }
-.login .brand span { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+
+/* Páginas no formato do Cockpit de Growth: seção com título, indicadores e tabela inteira (sem rolagem interna) */
+.block { margin-bottom: 22px; }
+.block h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: var(--navy); }
+.block .note { margin: 10px 2px 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.kpis.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.kpis.k3 { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 0; max-width: 900px; }
+.card.full .table-wrap { max-height: none; }
+.card.full td.name { font-weight: 500; word-break: break-word; }
+td.video-thumb { width: 176px; padding: 6px; }
+td.video-thumb img { display: block; width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--blue-soft); }
+@media (max-width: 860px) { .kpis.k4, .kpis.k3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .r-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .r-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }

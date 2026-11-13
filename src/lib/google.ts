@@ -1,4 +1,4 @@
-import type { BreakdownRow, CampaignRow, DailyPoint, DateRange, GoogleData, KeywordRow, SearchTermRow, Totals } from './types';
+import type { DateRange, GoogleCampaignRow, GoogleData, GoogleGroup, GoogleTotals, SearchTermRow, VideoRow } from './types';
 import { previousRange } from './dates';
 import { campaignFilter } from './filter';
 
@@ -59,11 +59,6 @@ async function search(query: string): Promise<any[]> {
 }
 
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
-
-type Base = { spend: number; impressions: number; clicks: number };
-const toBase = (m: any): Base => ({ spend: num(m?.costMicros) / 1e6, impressions: num(m?.impressions), clicks: num(m?.clicks) });
-
-const METRICS = 'metrics.cost_micros, metrics.impressions, metrics.clicks';
 const between = (r: DateRange) => `segments.date BETWEEN '${r.start}' AND '${r.end}'`;
 
 /** Só as campanhas dos leilões dos Correios (trecho do nome, sem diferenciar maiúsculas). */
@@ -72,45 +67,12 @@ function onlyFiltered(): string {
   return `campaign.name REGEXP_MATCH '(?i).*${f}.*'`;
 }
 
-const list = (v: string | undefined) =>
-  (v ?? '')
+/** Ações de conversão contadas como lead (cadastro, formulário): nomes exatos, separados por vírgula. */
+const leadActions = () =>
+  (process.env.GOOGLE_ADS_LEAD_ACTIONS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-
-/** Ações de conversão contadas como lead (cadastro, formulário) e como visualização de página. */
-const leadActions = () => list(process.env.GOOGLE_ADS_LEAD_ACTIONS);
-const pageviewActions = () => list(process.env.GOOGLE_ADS_PAGEVIEW_ACTIONS);
-
-type Conv = { leads: number; pageviews: number };
-
-/**
- * Soma leads e pageviews por chave, a partir das ações de conversão configuradas.
- * Usa "todas as conversões": nas campanhas de tráfego essas ações não entram na coluna "conversões".
- */
-async function convBy(from: string, select: string, where: string, key: (r: any) => string): Promise<Map<string, Conv>> {
-  const leads = new Set(leadActions().map((s) => s.toLowerCase()));
-  const views = new Set(pageviewActions().map((s) => s.toLowerCase()));
-  const map = new Map<string, Conv>();
-  if (!leads.size && !views.size) return map;
-  const rows = await search(`SELECT ${select ? `${select}, ` : ''}segments.conversion_action_name, metrics.all_conversions FROM ${from} WHERE ${where}`);
-  for (const r of rows) {
-    const action = String(r.segments?.conversionActionName ?? '').toLowerCase();
-    const isLead = leads.has(action);
-    const isView = views.has(action);
-    if (!isLead && !isView) continue;
-    const k = key(r);
-    const e = map.get(k) ?? { leads: 0, pageviews: 0 };
-    if (isLead) e.leads += num(r.metrics?.allConversions);
-    if (isView) e.pageviews += num(r.metrics?.allConversions);
-    map.set(k, e);
-  }
-  return map;
-}
-
-const NO_CONV: Conv = { leads: 0, pageviews: 0 };
-
-const DEVICE: Record<string, string> = { MOBILE: 'Celular', DESKTOP: 'Computador', TABLET: 'Tablet', CONNECTED_TV: 'TV', OTHER: 'Outros' };
 
 const CHANNEL: Record<string, string> = {
   SEARCH: 'Pesquisa',
@@ -121,7 +83,61 @@ const CHANNEL: Record<string, string> = {
   DEMAND_GEN: 'Demand Gen',
 };
 
-/** Visões extras da aba Google: se uma delas falhar, o restante do painel continua. */
+/** Campanhas que rodam no YouTube: vão para a página "YouTube" e saem da página "Google Ads". */
+const isYouTube = (channel: string) => channel === 'VIDEO' || channel === 'DEMAND_GEN';
+
+type CampaignRow = GoogleCampaignRow & { channel: string };
+
+/** Campanhas com entrega no período, já com os leads das ações configuradas. */
+async function campaigns(range: DateRange): Promise<CampaignRow[]> {
+  const where = `${between(range)} AND ${onlyFiltered()}`;
+  const wanted = new Set(leadActions().map((s) => s.toLowerCase()));
+
+  const [rows, conv] = await Promise.all([
+    search(
+      `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, metrics.impressions, metrics.clicks, metrics.video_trueview_views, metrics.search_top_impression_share FROM campaign WHERE ${where} AND metrics.impressions > 0`,
+    ),
+    // "Todas as conversões": nas campanhas de tráfego essas ações não entram na coluna "conversões"
+    wanted.size ? search(`SELECT campaign.id, segments.conversion_action_name, metrics.all_conversions FROM campaign WHERE ${where}`) : Promise.resolve([]),
+  ]);
+
+  const leads = new Map<string, number>();
+  for (const r of conv) {
+    if (!wanted.has(String(r.segments?.conversionActionName ?? '').toLowerCase())) continue;
+    const id = String(r.campaign.id);
+    leads.set(id, (leads.get(id) ?? 0) + num(r.metrics?.allConversions));
+  }
+
+  return rows.map((r) => {
+    const id = String(r.campaign.id);
+    const channel = String(r.campaign.advertisingChannelType ?? '');
+    return {
+      id,
+      name: r.campaign.name,
+      type: CHANNEL[channel] ?? channel,
+      channel,
+      impressions: num(r.metrics?.impressions),
+      clicks: num(r.metrics?.clicks),
+      views: num(r.metrics?.videoTrueviewViews),
+      leads: leads.get(id) ?? 0,
+      // Só existe na rede de pesquisa. O Google devolve 0.0999 para "menos de 10%".
+      topShare: channel === 'SEARCH' && r.metrics?.searchTopImpressionShare != null ? num(r.metrics.searchTopImpressionShare) : undefined,
+    };
+  });
+}
+
+function sum(rows: CampaignRow[]): GoogleTotals {
+  const t = rows.reduce(
+    (a, r) => ({ impressions: a.impressions + r.impressions, clicks: a.clicks + r.clicks, leads: a.leads + r.leads, views: a.views + r.views }),
+    { impressions: 0, clicks: 0, leads: 0, views: 0 },
+  );
+  // Parcela de impressões não se soma: com mais de uma campanha de pesquisa, usa a média ponderada pelas impressões
+  const search = rows.filter((r) => r.topShare !== undefined && r.impressions > 0);
+  const weight = search.reduce((s, r) => s + r.impressions, 0);
+  return { ...t, topShare: weight ? search.reduce((s, r) => s + r.topShare! * r.impressions, 0) / weight : undefined };
+}
+
+/** Visões extras: se uma delas falhar, o restante da página continua. */
 async function optional<T>(what: string, fn: () => Promise<T>, empty: T): Promise<T> {
   try {
     return await fn();
@@ -131,101 +147,58 @@ async function optional<T>(what: string, fn: () => Promise<T>, empty: T): Promis
   }
 }
 
-/** Agrupa linhas por chave somando custo, impressões e cliques. */
-function group(rows: any[], key: (r: any) => string): Map<string, Base> {
-  const map = new Map<string, Base>();
+/** Termos de pesquisa das campanhas, somados por termo. */
+async function searchTerms(range: DateRange): Promise<SearchTermRow[]> {
+  const rows = await search(
+    `SELECT search_term_view.search_term, metrics.impressions, metrics.clicks FROM search_term_view WHERE ${between(range)} AND ${onlyFiltered()} AND metrics.impressions > 0`,
+  );
+  const map = new Map<string, SearchTermRow>();
   for (const r of rows) {
-    const k = key(r);
-    const b = toBase(r.metrics);
-    const e = map.get(k) ?? { spend: 0, impressions: 0, clicks: 0 };
-    e.spend += b.spend;
-    e.impressions += b.impressions;
-    e.clicks += b.clicks;
-    map.set(k, e);
+    const term = r.searchTermView?.searchTerm ?? '—';
+    const e = map.get(term) ?? { term, impressions: 0, clicks: 0 };
+    e.impressions += num(r.metrics?.impressions);
+    e.clicks += num(r.metrics?.clicks);
+    map.set(term, e);
   }
-  return map;
+  return [...map.values()].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 100);
+}
+
+/** Vídeos anunciados nas campanhas, somados por vídeo. */
+async function videos(range: DateRange): Promise<VideoRow[]> {
+  const rows = await search(
+    `SELECT video.id, video.title, campaign.name, metrics.impressions, metrics.clicks, metrics.video_trueview_views FROM video WHERE ${between(range)} AND ${onlyFiltered()}`,
+  );
+  const map = new Map<string, VideoRow>();
+  for (const r of rows) {
+    const id = String(r.video?.id ?? '');
+    if (!id) continue;
+    const e = map.get(id) ?? { id, title: r.video?.title || id, views: 0, impressions: 0, clicks: 0 };
+    e.views += num(r.metrics?.videoTrueviewViews);
+    e.impressions += num(r.metrics?.impressions);
+    e.clicks += num(r.metrics?.clicks);
+    map.set(id, e);
+  }
+  return [...map.values()].filter((v) => v.impressions > 0).sort((a, b) => b.views - a.views);
+}
+
+function group(cur: CampaignRow[], prev: CampaignRow[], youtube: boolean): GoogleGroup {
+  const mine = (r: CampaignRow) => isYouTube(r.channel) === youtube;
+  return {
+    totals: sum(cur.filter(mine)),
+    prev: sum(prev.filter(mine)),
+    campaigns: cur
+      .filter(mine)
+      .map(({ channel: _channel, ...row }) => row)
+      .sort((a, b) => b.impressions - a.impressions),
+  };
 }
 
 export async function fetchGoogle(range: DateRange): Promise<GoogleData> {
-  const prev = previousRange(range);
-  const only = onlyFiltered();
-  const cur = `${between(range)} AND ${only}`;
-  const before = `${between(prev)} AND ${only}`;
-
-  const [daily, campaigns, prevRows, device] = await Promise.all([
-    search(`SELECT segments.date, ${METRICS} FROM campaign WHERE ${cur}`),
-    search(`SELECT campaign.id, campaign.name, campaign.advertising_channel_type, ${METRICS} FROM campaign WHERE ${cur} AND metrics.impressions > 0`),
-    search(`SELECT ${METRICS} FROM campaign WHERE ${before}`),
-    search(`SELECT segments.device, ${METRICS} FROM campaign WHERE ${cur}`),
+  const [cur, prev, terms, vids] = await Promise.all([
+    campaigns(range),
+    campaigns(previousRange(range)),
+    optional('termos de pesquisa', () => searchTerms(range), [] as SearchTermRow[]),
+    optional('vídeos', () => videos(range), [] as VideoRow[]),
   ]);
-
-  const [cDaily, cCampaign, cPrev, cDevice] = await Promise.all([
-    convBy('campaign', 'segments.date', cur, (r) => r.segments.date),
-    convBy('campaign', 'campaign.id', cur, (r) => String(r.campaign.id)),
-    convBy('campaign', '', before, () => 'all'),
-    convBy('campaign', 'segments.device', cur, (r) => r.segments.device),
-  ]);
-
-  const [keywords, cKeyword, terms, cTerm] = await Promise.all([
-    optional('palavras-chave', () => search(`SELECT ad_group_criterion.keyword.text, ${METRICS} FROM keyword_view WHERE ${cur} AND metrics.impressions > 0`), [] as any[]),
-    optional('palavras-chave', () => convBy('keyword_view', 'ad_group_criterion.keyword.text', cur, (r) => r.adGroupCriterion?.keyword?.text ?? '—'), new Map<string, Conv>()),
-    optional('termos', () => search(`SELECT search_term_view.search_term, ${METRICS} FROM search_term_view WHERE ${cur}`), [] as any[]),
-    optional('termos', () => convBy('search_term_view', 'search_term_view.search_term', cur, (r) => r.searchTermView.searchTerm), new Map<string, Conv>()),
-  ]);
-
-  const dailyPoints: DailyPoint[] = [...group(daily, (r) => r.segments.date).entries()]
-    .map(([date, b]) => ({ date, ...b, ...(cDaily.get(date) ?? NO_CONV) }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const campaignRows: CampaignRow[] = campaigns
-    .map((r) => ({
-      id: String(r.campaign.id),
-      name: r.campaign.name,
-      type: CHANNEL[r.campaign.advertisingChannelType] ?? r.campaign.advertisingChannelType,
-      ...toBase(r.metrics),
-      ...(cCampaign.get(String(r.campaign.id)) ?? NO_CONV),
-    }))
-    .sort((a, b) => b.spend - a.spend);
-
-  const sum = (rows: Totals[]): Totals =>
-    rows.reduce(
-      (a, r) => ({
-        spend: a.spend + r.spend,
-        impressions: a.impressions + r.impressions,
-        clicks: a.clicks + r.clicks,
-        pageviews: a.pageviews + r.pageviews,
-        leads: a.leads + r.leads,
-      }),
-      { spend: 0, impressions: 0, clicks: 0, pageviews: 0, leads: 0 },
-    );
-
-  const prevBase = [...group(prevRows, () => 'all').values()][0] ?? { spend: 0, impressions: 0, clicks: 0 };
-
-  const keywordRows: KeywordRow[] = [...group(keywords, (r) => r.adGroupCriterion?.keyword?.text ?? '—').entries()]
-    .map(([keyword, b]) => ({ keyword, ...b, leads: cKeyword.get(keyword)?.leads ?? 0 }))
-    .sort((a, b) => b.clicks - a.clicks)
-    .slice(0, 50);
-
-  const termRows: SearchTermRow[] = [...group(terms, (r) => r.searchTermView?.searchTerm ?? '—').entries()]
-    .map(([term, b]) => ({ term, ...b, leads: cTerm.get(term)?.leads ?? 0 }))
-    .sort((a, b) => b.clicks - a.clicks)
-    .slice(0, 50);
-
-  const deviceRows: BreakdownRow[] = [...group(device, (r) => r.segments.device).entries()]
-    .map(([d, b]) => ({ name: DEVICE[d] ?? d, ...b, ...(cDevice.get(d) ?? NO_CONV) }))
-    .filter((d) => d.impressions > 0)
-    .sort((a, b) => b.clicks - a.clicks);
-
-  return {
-    // Total a partir da série diária (inclui campanhas pausadas que rodaram no período)
-    totals: sum(dailyPoints),
-    prev: { ...prevBase, ...(cPrev.get('all') ?? NO_CONV) },
-    daily: dailyPoints,
-    campaigns: campaignRows,
-    keywords: keywordRows,
-    device: deviceRows,
-    terms: termRows,
-    leadActions: leadActions(),
-    pageviewActions: pageviewActions(),
-  };
+  return { ads: group(cur, prev, false), youtube: group(cur, prev, true), terms, videos: vids };
 }

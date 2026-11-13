@@ -1,4 +1,4 @@
-import type { AdRow, BreakdownRow, CampaignRow, DailyPoint, DateRange, MetaData, MetaTotals } from './types';
+import type { DateRange, MetaAdsetRow, MetaData, MetaTotals } from './types';
 import { previousRange } from './dates';
 import { campaignFilter } from './filter';
 
@@ -6,28 +6,23 @@ const API = 'https://graph.facebook.com/v21.0';
 
 type Action = { action_type: string; value: string };
 
-// Ordem de preferência: o primeiro tipo encontrado é usado (evita contar o mesmo lead duas vezes).
-// `lead` é o total que o Gerenciador mostra (formulário + site).
-const LEAD_FORM = ['onsite_conversion.lead_grouped', 'leadgen_grouped', 'leadgen.other'];
-const LEAD_SITE = ['offsite_conversion.fb_pixel_lead'];
 const LANDING = ['landing_page_view', 'omni_landing_page_view'];
+// `lead` é o total que o Gerenciador mostra (formulário instantâneo + pixel no site).
+// Sem ele, soma os dois tipos.
+const LEAD_PARTS = ['onsite_conversion.lead_grouped', 'offsite_conversion.fb_pixel_lead'];
+
+const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+const action = (list: Action[] | undefined, type: string) => num(list?.find((x) => x.action_type === type)?.value);
 
 function pick(list: Action[] | undefined, types: string[]): number {
-  if (!list) return 0;
   for (const t of types) {
-    const a = list.find((x) => x.action_type === t);
-    if (a) return parseFloat(a.value) || 0;
+    const v = action(list, t);
+    if (v) return v;
   }
   return 0;
 }
 
-const REGION_PT: Record<string, string> = { 'Federal District': 'Distrito Federal', Unknown: 'Não informado' };
-const regionName = (name: string) => {
-  const clean = name.replace(/\s*\((state|province|region)\)\s*$/i, '').trim();
-  return REGION_PT[clean] ?? clean;
-};
-
-const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+const leadsOf = (list: Action[] | undefined) => action(list, 'lead') || LEAD_PARTS.reduce((s, t) => s + action(list, t), 0);
 
 async function get(path: string, params: Record<string, string>, token: string) {
   const url = new URL(`${API}/${path}`);
@@ -47,54 +42,21 @@ async function get(path: string, params: Record<string, string>, token: string) 
   return data as any[];
 }
 
-function leadsOf(actions: Action[] | undefined) {
-  const form = pick(actions, LEAD_FORM);
-  const site = pick(actions, LEAD_SITE);
-  // Sem o total `lead`, soma formulário + site
-  const total = pick(actions, ['lead']) || form + site;
-  return { total, form, site };
-}
+/** Campanha com objetivo de geração de leads (as demais são tratadas como tráfego). */
+const isLeadCampaign = (objective: string | undefined) => /LEAD/i.test(objective ?? '');
 
-function toTotals(row: any): MetaTotals {
-  const l = leadsOf(row?.actions);
-  return {
-    spend: num(row?.spend),
-    impressions: num(row?.impressions),
-    clicks: num(row?.inline_link_clicks ?? row?.clicks),
-    reach: num(row?.reach),
-    pageviews: pick(row?.actions, LANDING),
-    leads: l.total,
-    leadsForm: l.form,
-    leadsSite: l.site,
-  };
-}
+// "Cliques" segue o relatório de referência: todos os cliques do anúncio, não só os cliques no link.
+const FIELDS = 'impressions,clicks,inline_link_clicks,actions';
 
-/** Ordem dos "melhores anúncios": leads, depois pageviews, depois cliques. */
-const rankAds = (a: AdRow, b: AdRow) => b.leads - a.leads || b.pageviews - a.pageviews || b.clicks - a.clicks;
-
-const BASE_FIELDS = 'spend,impressions,reach,inline_link_clicks,actions';
-
-const OBJECTIVE: Record<string, string> = {
-  OUTCOME_LEADS: 'Leads',
-  OUTCOME_TRAFFIC: 'Tráfego',
-  OUTCOME_AWARENESS: 'Reconhecimento',
-  OUTCOME_ENGAGEMENT: 'Engajamento',
-  OUTCOME_SALES: 'Vendas',
-  LEAD_GENERATION: 'Leads',
-  LINK_CLICKS: 'Tráfego',
-};
-
-function breakdown(rows: any[], key: string): BreakdownRow[] {
-  return rows
-    .map((r) => ({
-      name: r[key] ?? 'Desconhecido',
-      spend: num(r.spend),
-      impressions: num(r.impressions),
-      clicks: num(r.inline_link_clicks),
-      pageviews: pick(r.actions, LANDING),
-      leads: leadsOf(r.actions).total,
-    }))
-    .sort((a, b) => b.impressions - a.impressions);
+function totals(rows: any[]): MetaTotals {
+  const t: MetaTotals = { impressions: 0, clicks: 0, leads: 0, leadLinkClicks: 0 };
+  for (const r of rows) {
+    t.impressions += num(r.impressions);
+    t.clicks += num(r.clicks);
+    t.leads += leadsOf(r.actions);
+    if (isLeadCampaign(r.objective)) t.leadLinkClicks += num(r.inline_link_clicks);
+  }
+  return t;
 }
 
 export async function fetchMeta(range: DateRange): Promise<MetaData> {
@@ -108,64 +70,30 @@ export async function fetchMeta(range: DateRange): Promise<MetaData> {
   const filtering = JSON.stringify([{ field: 'campaign.name', operator: 'CONTAIN', value: campaignFilter() }]);
   const insights = (p: Record<string, string>) => get(`${act}/insights`, { limit: '500', filtering, ...p }, token);
 
-  const [cur, before, daily, campaigns, ads, age, gender, region] = await Promise.all([
-    insights({ time_range: tr(range), fields: BASE_FIELDS }),
-    insights({ time_range: tr(prev), fields: BASE_FIELDS }),
-    insights({ time_range: tr(range), time_increment: '1', fields: BASE_FIELDS }),
-    insights({ time_range: tr(range), level: 'campaign', fields: `campaign_id,campaign_name,objective,${BASE_FIELDS}` }),
-    insights({ time_range: tr(range), level: 'ad', fields: `ad_id,ad_name,campaign_id,${BASE_FIELDS}` }),
-    insights({ time_range: tr(range), breakdowns: 'age', fields: BASE_FIELDS }),
-    insights({ time_range: tr(range), breakdowns: 'gender', fields: BASE_FIELDS }),
-    insights({ time_range: tr(range), breakdowns: 'region', fields: BASE_FIELDS }),
+  const [campaigns, before, adsets] = await Promise.all([
+    insights({ time_range: tr(range), level: 'campaign', fields: `campaign_id,objective,${FIELDS}` }),
+    insights({ time_range: tr(prev), level: 'campaign', fields: `campaign_id,objective,${FIELDS}` }),
+    insights({ time_range: tr(range), level: 'adset', fields: `adset_id,adset_name,campaign_id,${FIELDS}` }),
   ]);
 
-  const dailyPoints: DailyPoint[] = daily.map((r) => ({ date: r.date_start, ...toTotals(r) }));
+  const leadCampaigns = new Set(campaigns.filter((c) => isLeadCampaign(c.objective)).map((c) => c.campaign_id));
 
-  const campaignRows: CampaignRow[] = campaigns
-    .map((r) => ({ id: r.campaign_id, name: r.campaign_name, type: OBJECTIVE[r.objective] ?? r.objective, ...toTotals(r) }))
-    .sort((a, b) => b.spend - a.spend);
-
-  const topAds: AdRow[] = ads.map((r) => ({ id: r.ad_id, name: r.ad_name, campaignId: r.campaign_id, ...toTotals(r) })).sort(rankAds);
-
-  // Miniaturas (a API aceita até 50 ids por chamada; limite de segurança de 500 anúncios)
-  const chunks: AdRow[][] = [];
-  for (let i = 0; i < Math.min(topAds.length, 500); i += 50) chunks.push(topAds.slice(i, i + 50));
-  await Promise.all(
-    chunks.map(async (chunk) => {
-      try {
-        const url = new URL(API);
-        url.searchParams.set('ids', chunk.map((a) => a.id).join(','));
-        // Sem tamanho explícito a thumbnail_url vem em 64x64; pedimos 600x600 (cobre vídeos).
-        url.searchParams.set('fields', 'creative.thumbnail_width(600).thumbnail_height(600){image_url,thumbnail_url}');
-        url.searchParams.set('access_token', token);
-        const thumbs = await (await fetch(url, { cache: 'no-store' })).json();
-        for (const a of chunk) {
-          const c = thumbs?.[a.id]?.creative;
-          a.thumbnail = c?.image_url ?? c?.thumbnail_url;
-        }
-      } catch {
-        /* miniaturas são opcionais */
-      }
-    }),
-  );
+  const rows = adsets.map((r) => ({
+    campaignId: r.campaign_id as string,
+    row: {
+      id: r.adset_id,
+      name: r.adset_name,
+      impressions: num(r.impressions),
+      clicks: num(r.clicks),
+      leads: leadsOf(r.actions),
+      pageviews: pick(r.actions, LANDING),
+    } satisfies MetaAdsetRow,
+  }));
 
   return {
-    totals: toTotals(cur[0]),
-    prev: toTotals(before[0]),
-    daily: dailyPoints,
-    campaigns: campaignRows,
-    ads: topAds,
-    // "Unknown" vira "N/I" e vai para o fim do gráfico de idade
-    age: breakdown(age, 'age')
-      .map((a) => ({ ...a, name: a.name.toLowerCase() === 'unknown' ? 'N/I' : a.name }))
-      .sort((a, b) => Number(a.name === 'N/I') - Number(b.name === 'N/I') || a.name.localeCompare(b.name)),
-    gender: breakdown(gender, 'gender').map((g) => ({
-      ...g,
-      name: g.name === 'female' ? 'Feminino' : g.name === 'male' ? 'Masculino' : 'Não informado',
-    })),
-    // A Meta devolve "São Paulo (state)", "Federal District"... deixa só o nome do estado em português
-    region: breakdown(region, 'region')
-      .map((r) => ({ ...r, name: regionName(r.name) }))
-      .slice(0, 30),
+    totals: totals(campaigns),
+    prev: totals(before),
+    leadAdsets: rows.filter((r) => leadCampaigns.has(r.campaignId)).map((r) => r.row).sort((a, b) => b.leads - a.leads),
+    trafficAdsets: rows.filter((r) => !leadCampaigns.has(r.campaignId)).map((r) => r.row).sort((a, b) => b.pageviews - a.pageviews),
   };
 }

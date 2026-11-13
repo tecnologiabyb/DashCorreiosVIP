@@ -1,4 +1,4 @@
-import type { CampaignRow, DailyPoint, DateRange, LinkedInData, LinkedInTotals } from './types';
+import type { DateRange, LinkedInData, Row, Totals } from './types';
 import { previousRange } from './dates';
 import { matchesFilter } from './filter';
 
@@ -86,103 +86,58 @@ function dateParam(r: DateRange): string {
   return `(start:${p(r.start)},end:${p(r.end)})`;
 }
 
-const FIELDS = 'dateRange,pivotValues,impressions,clicks,landingPageClicks,costInLocalCurrency,oneClickLeads,externalWebsiteConversions';
+const FIELDS = 'pivotValues,impressions,clicks,oneClickLeads,externalWebsiteConversions';
 
-async function analytics(range: DateRange, granularity: 'DAILY' | 'ALL'): Promise<any[]> {
+/** Totais do período por campanha. */
+async function analytics(range: DateRange): Promise<any[]> {
   const { account } = config();
   const accounts = `List(${encodeURIComponent(`urn:li:sponsoredAccount:${account}`)})`;
-  const json = await get(
-    `adAnalytics?q=analytics&pivot=CAMPAIGN&timeGranularity=${granularity}&dateRange=${dateParam(range)}&accounts=${accounts}&fields=${FIELDS}`,
-  );
+  const json = await get(`adAnalytics?q=analytics&pivot=CAMPAIGN&timeGranularity=ALL&dateRange=${dateParam(range)}&accounts=${accounts}&fields=${FIELDS}`);
   return json.elements ?? [];
 }
 
-/** Nome e formato de cada campanha da conta (id → dados). */
-async function campaignNames(): Promise<Map<string, { name: string; type?: string }>> {
+/** Nome de cada campanha da conta (id → nome). */
+async function campaignNames(): Promise<Map<string, string>> {
   const { account } = config();
-  const map = new Map<string, { name: string; type?: string }>();
+  const map = new Map<string, string>();
   let token: string | undefined;
   for (let i = 0; i < 20; i++) {
     const json = await get(`adAccounts/${account}/adCampaigns?q=search&pageSize=500${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`);
-    for (const c of json.elements ?? []) map.set(String(c.id), { name: c.name, type: FORMAT[c.format] ?? c.format });
+    for (const c of json.elements ?? []) map.set(String(c.id), c.name);
     token = json.metadata?.nextPageToken;
     if (!token) break;
   }
   return map;
 }
 
-const FORMAT: Record<string, string> = {
-  SINGLE_IMAGE: 'Imagem',
-  STANDARD_UPDATE: 'Imagem',
-  CAROUSEL: 'Carrossel',
-  SINGLE_VIDEO: 'Vídeo',
-  TEXT_AD: 'Texto',
-  SPONSORED_INMAIL: 'Mensagem',
-  SPONSORED_MESSAGE: 'Conversa',
-  FOLLOW_COMPANY: 'Seguidores',
-};
+/** Leads = formulários nativos (Lead Gen Form) + conversões registradas no site pela Insight Tag. */
+const toTotals = (r: any): Totals => ({
+  impressions: num(r?.impressions),
+  clicks: num(r?.clicks),
+  leads: num(r?.oneClickLeads) + num(r?.externalWebsiteConversions),
+});
 
-function toTotals(r: any): LinkedInTotals {
-  const form = num(r?.oneClickLeads);
-  const site = num(r?.externalWebsiteConversions);
-  return {
-    spend: num(r?.costInLocalCurrency),
-    impressions: num(r?.impressions),
-    clicks: num(r?.clicks),
-    // O LinkedIn não informa visualização de página: usa os cliques que levaram à página de destino
-    pageviews: num(r?.landingPageClicks),
-    leads: form + site,
-    leadsForm: form,
-    leadsSite: site,
-  };
-}
-
-const ZERO: LinkedInTotals = { spend: 0, impressions: 0, clicks: 0, pageviews: 0, leads: 0, leadsForm: 0, leadsSite: 0 };
-
-function add(a: LinkedInTotals, b: LinkedInTotals): LinkedInTotals {
-  return {
-    spend: a.spend + b.spend,
-    impressions: a.impressions + b.impressions,
-    clicks: a.clicks + b.clicks,
-    pageviews: a.pageviews + b.pageviews,
-    leads: a.leads + b.leads,
-    leadsForm: a.leadsForm + b.leadsForm,
-    leadsSite: a.leadsSite + b.leadsSite,
-  };
-}
+const add = (a: Totals, b: Totals): Totals => ({ impressions: a.impressions + b.impressions, clicks: a.clicks + b.clicks, leads: a.leads + b.leads });
+const ZERO: Totals = { impressions: 0, clicks: 0, leads: 0 };
 
 /** "urn:li:sponsoredCampaign:123" → "123" */
 const campaignId = (r: any) => String(r?.pivotValues?.[0] ?? '').split(':').pop() ?? '';
 
-const isoOf = (d: any) => `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-
 export async function fetchLinkedIn(range: DateRange): Promise<LinkedInData> {
-  const prev = previousRange(range);
-  const [names, daily, before] = await Promise.all([campaignNames(), analytics(range, 'DAILY'), analytics(prev, 'ALL')]);
+  const [names, cur, before] = await Promise.all([campaignNames(), analytics(range), analytics(previousRange(range))]);
 
   // Só as campanhas dos leilões dos Correios
-  const keep = (r: any) => matchesFilter(names.get(campaignId(r))?.name);
+  const keep = (r: any) => matchesFilter(names.get(campaignId(r)));
 
-  const byDay = new Map<string, LinkedInTotals>();
-  const byCampaign = new Map<string, LinkedInTotals>();
-  for (const r of daily.filter(keep)) {
-    const t = toTotals(r);
-    const date = isoOf(r.dateRange.start);
-    byDay.set(date, add(byDay.get(date) ?? ZERO, t));
-    const id = campaignId(r);
-    byCampaign.set(id, add(byCampaign.get(id) ?? ZERO, t));
-  }
-
-  const dailyPoints: DailyPoint[] = [...byDay.entries()].map(([date, t]) => ({ date, ...t })).sort((a, b) => a.date.localeCompare(b.date));
-
-  const campaigns: CampaignRow[] = [...byCampaign.entries()]
-    .map(([id, t]) => ({ id, name: names.get(id)?.name ?? id, type: names.get(id)?.type, ...t }))
-    .sort((a, b) => b.spend - a.spend);
+  const campaigns: Row[] = cur
+    .filter(keep)
+    .map((r) => ({ id: campaignId(r), name: names.get(campaignId(r)) ?? campaignId(r), ...toTotals(r) }))
+    .filter((r) => r.impressions > 0 || r.clicks > 0 || r.leads > 0)
+    .sort((a, b) => b.impressions - a.impressions);
 
   return {
-    totals: [...byCampaign.values()].reduce(add, ZERO),
+    totals: campaigns.reduce<Totals>(add, ZERO),
     prev: before.filter(keep).map(toTotals).reduce(add, ZERO),
-    daily: dailyPoints,
     campaigns,
   };
 }
