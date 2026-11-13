@@ -36,7 +36,7 @@ No Google usamos "todas as conversões" porque as campanhas de tráfego não con
 
 ## Páginas
 
-- **Google Ads**: impressões, CTR, % Share Top (parcela de impressões na parte superior da pesquisa, `search_top_impression_share`) e cliques; os mesmos dados por campanha; termos de pesquisa.
+- **Google Ads**: impressões, CTR, % Share Top (parcela de impressões na parte superior da pesquisa, `search_top_impression_share`) e cliques; os mesmos dados por campanha.
 - **YouTube**: impressões, cliques e CTR; vídeos com miniatura, título e visualizações.
 - **Meta Ads**: impressões, cliques, leads e taxa de conversão; visão de leads por conjunto de anúncio e visão de tráfego por conjunto de anúncio.
 - **LinkedIn Ads**: impressões, cliques e CTR; visão por grupo de anúncio.
@@ -48,7 +48,6 @@ O período padrão é o mês atual. Se uma plataforma falhar, a página dela mos
 O access token do LinkedIn vale cerca de 60 dias. Com `LINKEDIN_REFRESH_TOKEN`, `LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET` preenchidos, a dash gera um access token novo sozinha quando o atual vence (ou quando a API responde 401). O refresh token vale 12 meses a partir da autorização (13/11/2026): antes de 13/11/2027 é preciso gerar outro em `linkedin.com/developers/tools/oauth/token-generator`, com os escopos `r_ads` e `r_ads_reporting`, e atualizar `LINKEDIN_REFRESH_TOKEN`.
 
 
-Todas as variações comparam com o período anterior de mesma duração.
 
 ## Deploy (Vercel)
 

@@ -1,5 +1,4 @@
-import type { DateRange, GoogleCampaignRow, GoogleData, GoogleGroup, GoogleTotals, SearchTermRow, VideoRow } from './types';
-import { previousRange } from './dates';
+import type { DateRange, GoogleCampaignRow, GoogleData, GoogleGroup, GoogleTotals, VideoRow } from './types';
 import { campaignFilter } from './filter';
 
 const API = 'https://googleads.googleapis.com/v23';
@@ -147,22 +146,6 @@ async function optional<T>(what: string, fn: () => Promise<T>, empty: T): Promis
   }
 }
 
-/** Termos de pesquisa das campanhas, somados por termo. */
-async function searchTerms(range: DateRange): Promise<SearchTermRow[]> {
-  const rows = await search(
-    `SELECT search_term_view.search_term, metrics.impressions, metrics.clicks FROM search_term_view WHERE ${between(range)} AND ${onlyFiltered()} AND metrics.impressions > 0`,
-  );
-  const map = new Map<string, SearchTermRow>();
-  for (const r of rows) {
-    const term = r.searchTermView?.searchTerm ?? '—';
-    const e = map.get(term) ?? { term, impressions: 0, clicks: 0 };
-    e.impressions += num(r.metrics?.impressions);
-    e.clicks += num(r.metrics?.clicks);
-    map.set(term, e);
-  }
-  return [...map.values()].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 100);
-}
-
 /** Vídeos anunciados nas campanhas, somados por vídeo. */
 async function videos(range: DateRange): Promise<VideoRow[]> {
   const rows = await search(
@@ -181,11 +164,10 @@ async function videos(range: DateRange): Promise<VideoRow[]> {
   return [...map.values()].filter((v) => v.impressions > 0).sort((a, b) => b.views - a.views);
 }
 
-function group(cur: CampaignRow[], prev: CampaignRow[], youtube: boolean): GoogleGroup {
+function group(cur: CampaignRow[], youtube: boolean): GoogleGroup {
   const mine = (r: CampaignRow) => isYouTube(r.channel) === youtube;
   return {
     totals: sum(cur.filter(mine)),
-    prev: sum(prev.filter(mine)),
     campaigns: cur
       .filter(mine)
       .map(({ channel: _channel, ...row }) => row)
@@ -194,11 +176,6 @@ function group(cur: CampaignRow[], prev: CampaignRow[], youtube: boolean): Googl
 }
 
 export async function fetchGoogle(range: DateRange): Promise<GoogleData> {
-  const [cur, prev, terms, vids] = await Promise.all([
-    campaigns(range),
-    campaigns(previousRange(range)),
-    optional('termos de pesquisa', () => searchTerms(range), [] as SearchTermRow[]),
-    optional('vídeos', () => videos(range), [] as VideoRow[]),
-  ]);
-  return { ads: group(cur, prev, false), youtube: group(cur, prev, true), terms, videos: vids };
+  const [cur, vids] = await Promise.all([campaigns(range), optional('vídeos', () => videos(range), [] as VideoRow[])]);
+  return { ads: group(cur, false), youtube: group(cur, true), videos: vids };
 }

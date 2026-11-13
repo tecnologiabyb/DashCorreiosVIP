@@ -1,5 +1,4 @@
 import type { DateRange, LinkedInData, Row, Totals } from './types';
-import { previousRange } from './dates';
 import { matchesFilter } from './filter';
 
 // LinkedIn Marketing API (versionada). Precisa de um token com o escopo r_ads_reporting (e r_ads para listar campanhas).
@@ -124,7 +123,7 @@ const ZERO: Totals = { impressions: 0, clicks: 0, leads: 0 };
 const campaignId = (r: any) => String(r?.pivotValues?.[0] ?? '').split(':').pop() ?? '';
 
 export async function fetchLinkedIn(range: DateRange): Promise<LinkedInData> {
-  const [names, cur, before] = await Promise.all([campaignNames(), analytics(range), analytics(previousRange(range))]);
+  const [names, cur] = await Promise.all([campaignNames(), analytics(range)]);
 
   // Só as campanhas dos leilões dos Correios
   const keep = (r: any) => matchesFilter(names.get(campaignId(r)));
@@ -137,7 +136,6 @@ export async function fetchLinkedIn(range: DateRange): Promise<LinkedInData> {
 
   return {
     totals: campaigns.reduce<Totals>(add, ZERO),
-    prev: before.filter(keep).map(toTotals).reduce(add, ZERO),
     campaigns,
   };
 }

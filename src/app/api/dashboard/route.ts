@@ -3,7 +3,7 @@ import { fetchMeta } from '@/lib/meta';
 import { fetchGoogle } from '@/lib/google';
 import { fetchLinkedIn } from '@/lib/linkedin';
 import { campaignFilter } from '@/lib/filter';
-import { isValidRange, previousRange, toISO } from '@/lib/dates';
+import { isValidRange, toISO } from '@/lib/dates';
 import type { DashboardResponse, DateRange, Source } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -34,10 +34,9 @@ export async function GET(req: NextRequest) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL && sp.get('refresh') !== '1') return NextResponse.json(hit.body);
 
-  const prevRange = previousRange(range);
   const [meta, google, linkedin] = await Promise.all([source(() => fetchMeta(range)), source(() => fetchGoogle(range)), source(() => fetchLinkedIn(range))]);
 
-  const body: DashboardResponse = { range, prevRange, filter: campaignFilter(), meta, google, linkedin, updatedAt: new Date().toISOString() };
+  const body: DashboardResponse = { range, filter: campaignFilter(), meta, google, linkedin, updatedAt: new Date().toISOString() };
   if (meta.data && google.data && linkedin.data) cache.set(key, { at: Date.now(), body });
   return NextResponse.json(body);
 }

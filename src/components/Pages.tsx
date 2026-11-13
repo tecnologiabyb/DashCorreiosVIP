@@ -1,6 +1,6 @@
 'use client';
 
-import type { GoogleCampaignRow, GoogleData, LinkedInData, MetaAdsetRow, MetaData, Row, SearchTermRow, Totals, VideoRow } from '@/lib/types';
+import type { GoogleCampaignRow, GoogleData, LinkedInData, MetaAdsetRow, MetaData, Row, Totals, VideoRow } from '@/lib/types';
 import { dec, div, int, pct } from '@/lib/format';
 import { C, Card, Column, DataTable, Kpi } from './ui';
 
@@ -39,16 +39,15 @@ const leadsColumn = <T extends Row>(): Column<T> => ({ key: 'l', label: 'Leads',
 
 export function MetaPage({ m }: { m: MetaData }) {
   const t = m.totals;
-  const p = m.prev;
   const rate = (x: typeof t) => div(x.leads, x.leadLinkClicks) * 100;
   return (
     <>
       <Section title="Dados Gerais">
         <div className="grid kpis k4">
-          <Kpi label="Impressões" value={int(t.impressions)} cur={t.impressions} prev={p.impressions} color={C.blue} />
-          <Kpi label="Cliques" value={int(t.clicks)} cur={t.clicks} prev={p.clicks} color={C.blue} />
-          <Kpi label="Leads" value={leadsFmt(t.leads)} cur={t.leads} prev={p.leads} color={C.yellow} />
-          <Kpi label="Taxa de Conversão" value={pct(rate(t))} cur={rate(t)} prev={rate(p)} color={C.green} />
+          <Kpi label="Impressões" value={int(t.impressions)} color={C.blue} />
+          <Kpi label="Cliques" value={int(t.clicks)} color={C.blue} />
+          <Kpi label="Leads" value={leadsFmt(t.leads)} color={C.yellow} />
+          <Kpi label="Taxa de Conversão" value={pct(rate(t))} color={C.green} />
         </div>
       </Section>
 
@@ -81,15 +80,14 @@ export function MetaPage({ m }: { m: MetaData }) {
 
 export function GooglePage({ g }: { g: GoogleData }) {
   const t = g.ads.totals;
-  const p = g.ads.prev;
   return (
     <>
       <Section title="Dados Gerais">
         <div className="grid kpis k4">
-          <Kpi label="Impressões" value={int(t.impressions)} cur={t.impressions} prev={p.impressions} color={C.blue} />
-          <Kpi label="CTR" value={pct(ctr(t))} cur={ctr(t)} prev={ctr(p)} color={C.green} />
-          <Kpi label="% Share Top Google Ads" value={topShare(t.topShare)} cur={(t.topShare ?? 0) * 100} prev={(p.topShare ?? 0) * 100} color={C.yellow} />
-          <Kpi label="Cliques" value={int(t.clicks)} cur={t.clicks} prev={p.clicks} color={C.blue} />
+          <Kpi label="Impressões" value={int(t.impressions)} color={C.blue} />
+          <Kpi label="CTR" value={pct(ctr(t))} color={C.green} />
+          <Kpi label="% Share Top Google Ads" value={topShare(t.topShare)} color={C.yellow} />
+          <Kpi label="Cliques" value={int(t.clicks)} color={C.blue} />
         </div>
       </Section>
 
@@ -114,36 +112,19 @@ export function GooglePage({ g }: { g: GoogleData }) {
         </p>
       </Section>
 
-      <Section title="Search term">
-        <Card>
-          <DataTable
-            rows={g.terms}
-            sortable
-            empty="Nenhum termo de pesquisa no período"
-            columns={[
-              { key: 'n', label: 'Termo de pesquisa', render: (r) => r.term, sort: (r) => r.term },
-              { key: 'i', label: 'Impressões', num: true, render: (r) => int(r.impressions), value: (r) => r.impressions, heat: BAR },
-              { key: 'ctr', label: 'CTR', num: true, render: (r) => (r.impressions ? pct(ctr(r)) : '—'), value: (r) => ctr(r), heat: BAR },
-              { key: 'c', label: 'Cliques', num: true, render: (r) => int(r.clicks), value: (r) => r.clicks, heat: BAR },
-            ] satisfies Column<SearchTermRow>[]}
-          />
-        </Card>
-        <p className="note">Os {g.terms.length} termos mais clicados no período. O Google não informa a parcela de impressões por termo de pesquisa.</p>
-      </Section>
     </>
   );
 }
 
 export function YouTubePage({ g }: { g: GoogleData }) {
   const t = g.youtube.totals;
-  const p = g.youtube.prev;
   return (
     <>
       <Section title="Dados Gerais">
         <div className="grid kpis k3">
-          <Kpi label="Impressões" value={int(t.impressions)} cur={t.impressions} prev={p.impressions} color={C.blue} />
-          <Kpi label="Cliques" value={int(t.clicks)} cur={t.clicks} prev={p.clicks} color={C.blue} />
-          <Kpi label="CTR" value={pct(ctr(t))} cur={ctr(t)} prev={ctr(p)} color={C.green} />
+          <Kpi label="Impressões" value={int(t.impressions)} color={C.blue} />
+          <Kpi label="Cliques" value={int(t.clicks)} color={C.blue} />
+          <Kpi label="CTR" value={pct(ctr(t))} color={C.green} />
         </div>
       </Section>
 
@@ -177,14 +158,13 @@ export function YouTubePage({ g }: { g: GoogleData }) {
 
 export function LinkedInPage({ l }: { l: LinkedInData }) {
   const t: Totals = l.totals;
-  const p: Totals = l.prev;
   return (
     <>
       <Section title="Dados Gerais">
         <div className="grid kpis k3">
-          <Kpi label="Impressões" value={int(t.impressions)} cur={t.impressions} prev={p.impressions} color={C.blue} />
-          <Kpi label="Cliques" value={int(t.clicks)} cur={t.clicks} prev={p.clicks} color={C.blue} />
-          <Kpi label="CTR" value={pct(ctr(t))} cur={ctr(t)} prev={ctr(p)} color={C.green} />
+          <Kpi label="Impressões" value={int(t.impressions)} color={C.blue} />
+          <Kpi label="Cliques" value={int(t.clicks)} color={C.blue} />
+          <Kpi label="CTR" value={pct(ctr(t))} color={C.green} />
         </div>
       </Section>
 

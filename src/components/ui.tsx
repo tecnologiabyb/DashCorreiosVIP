@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import { delta, pct } from '@/lib/format';
 
 export const C = {
@@ -40,45 +39,12 @@ export function Delta({ cur, prev, invert = false }: { cur: number; prev: number
   );
 }
 
-interface KpiProps {
-  label: string;
-  value: string;
-  cur: number;
-  prev: number;
-  color: string;
-  invert?: boolean;
-  spark?: number[];
-}
-
-/** Card de KPI: barra mostra o atual vs. anterior (marca = período anterior), ou sparkline diária. */
-export function Kpi({ label, value, cur, prev, color, invert, spark }: KpiProps) {
-  const max = Math.max(cur, prev) || 1;
-  const gid = `g-${label.normalize('NFD').replace(/[^a-zA-Z0-9]/g, '')}`;
+/** Card de indicador: rótulo e valor do período, com um filete na cor do indicador. */
+export function Kpi({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="card kpi">
+    <div className="card kpi" style={{ borderTop: `3px solid ${color}` }}>
       <div className="label">{label}</div>
       <div className="value" title={value}>{value}</div>
-      <Delta cur={cur} prev={prev} invert={invert} />
-      {spark ? (
-        <div className="spark">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={spark.map((v, i) => ({ i, v }))} margin={{ top: 2, bottom: 0, left: 0, right: 0 }}>
-              <defs>
-                <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill={`url(#${gid})`} isAnimationActive={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <div className="bar" aria-hidden>
-          <div className="fill" style={{ width: `${(cur / max) * 100}%`, background: color }} />
-          {prev > 0 && <div className="mark" style={{ left: `calc(${(prev / max) * 100}% - 1px)` }} />}
-        </div>
-      )}
     </div>
   );
 }

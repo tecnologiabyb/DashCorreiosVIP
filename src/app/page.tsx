@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { DashboardResponse, DateRange } from '@/lib/types';
-import { longDate } from '@/lib/format';
 import { GooglePage, LinkedInPage, MetaPage, YouTubePage } from '@/components/Pages';
 
 // Mesmas páginas, na mesma ordem, do "Cockpit de Growth Correios" (Data Studio)
@@ -106,7 +105,6 @@ export default function Dashboard() {
             <h1>{current.title}</h1>
             <div className="sub">
               Cockpit de Growth Correios | <b>Vip Leilões</b>
-              {data && <> · comparando com {longDate(data.prevRange.start)} – {longDate(data.prevRange.end)}</>}
             </div>
           </div>
           <div className="filters">

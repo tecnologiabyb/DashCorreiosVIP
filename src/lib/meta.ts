@@ -1,5 +1,4 @@
 import type { DateRange, MetaAdsetRow, MetaData, MetaTotals } from './types';
-import { previousRange } from './dates';
 import { campaignFilter } from './filter';
 
 const API = 'https://graph.facebook.com/v21.0';
@@ -64,15 +63,13 @@ export async function fetchMeta(range: DateRange): Promise<MetaData> {
   const account = process.env.META_AD_ACCOUNT_ID;
   if (!token || !account) throw new Error('Meta: META_ACCESS_TOKEN ou META_AD_ACCOUNT_ID não configurado');
   const act = account.startsWith('act_') ? account : `act_${account}`;
-  const prev = previousRange(range);
   const tr = (r: DateRange) => JSON.stringify({ since: r.start, until: r.end });
   // Só as campanhas dos leilões dos Correios (trecho do nome, sem diferenciar maiúsculas)
   const filtering = JSON.stringify([{ field: 'campaign.name', operator: 'CONTAIN', value: campaignFilter() }]);
   const insights = (p: Record<string, string>) => get(`${act}/insights`, { limit: '500', filtering, ...p }, token);
 
-  const [campaigns, before, adsets] = await Promise.all([
+  const [campaigns, adsets] = await Promise.all([
     insights({ time_range: tr(range), level: 'campaign', fields: `campaign_id,objective,${FIELDS}` }),
-    insights({ time_range: tr(prev), level: 'campaign', fields: `campaign_id,objective,${FIELDS}` }),
     insights({ time_range: tr(range), level: 'adset', fields: `adset_id,adset_name,campaign_id,${FIELDS}` }),
   ]);
 
@@ -92,7 +89,6 @@ export async function fetchMeta(range: DateRange): Promise<MetaData> {
 
   return {
     totals: totals(campaigns),
-    prev: totals(before),
     leadAdsets: rows.filter((r) => leadCampaigns.has(r.campaignId)).map((r) => r.row).sort((a, b) => b.leads - a.leads),
     trafficAdsets: rows.filter((r) => !leadCampaigns.has(r.campaignId)).map((r) => r.row).sort((a, b) => b.pageviews - a.pageviews),
   };

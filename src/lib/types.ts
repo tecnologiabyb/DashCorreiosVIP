@@ -27,7 +27,6 @@ export interface MetaAdsetRow extends Row {
 
 export interface MetaData {
   totals: MetaTotals;
-  prev: MetaTotals;
   /** Conjuntos das campanhas com objetivo de leads. */
   leadAdsets: MetaAdsetRow[];
   /** Conjuntos das campanhas de tráfego (pageview). */
@@ -47,14 +46,7 @@ export type GoogleTotals = Totals & { views: number; topShare?: number };
 
 export interface GoogleGroup {
   totals: GoogleTotals;
-  prev: GoogleTotals;
   campaigns: GoogleCampaignRow[];
-}
-
-export interface SearchTermRow {
-  term: string;
-  impressions: number;
-  clicks: number;
 }
 
 export interface VideoRow {
@@ -71,15 +63,12 @@ export interface GoogleData {
   ads: GoogleGroup;
   /** Campanhas de Vídeo e Demand Gen. */
   youtube: GoogleGroup;
-  /** Termos de pesquisa das campanhas, dos mais clicados para os menos. */
-  terms: SearchTermRow[];
   /** Vídeos anunciados, dos mais vistos para os menos. */
   videos: VideoRow[];
 }
 
 export interface LinkedInData {
   totals: Totals;
-  prev: Totals;
   /** No LinkedIn o "grupo de anúncio" do relatório é a campanha. */
   campaigns: Row[];
 }
@@ -92,7 +81,6 @@ export interface Source<T> {
 
 export interface DashboardResponse {
   range: DateRange;
-  prevRange: DateRange;
   /** Trecho do nome que seleciona as campanhas (ex.: "correios"). */
   filter: string;
   meta: Source<MetaData>;
